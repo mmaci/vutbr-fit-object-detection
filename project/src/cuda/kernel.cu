@@ -35,7 +35,7 @@ texture<uint8> textureOriginalImage;
 texture<float> textureAlphas;
 
 __global__ void pyramidImageKernel(uint8* imageData, Bounds* bounds) {
-	buildPyramid(imageData, 320, 240, 48, 48, bounds, 8, 4);	
+	buildPyramid(imageData, 320, 240, 48, 48, bounds, 8, 3);	
 }
 
 __device__ void buildPyramid(uint8* imageData, uint32 max_x, uint32 max_y, uint32 min_x, uint32 min_y, Bounds* bounds, uint32 octaves, uint32 levels_per_octave)
@@ -240,12 +240,6 @@ cudaError_t runKernelWrapper(uint8* imageData, Detection* detections, uint32* de
 
 	printf("Time for the detectionKernel1: %f ms\n", detection_time);
 	printf("Total time: %f ms \n", pyramid_time + detection_time);
-
-	//detectionKernel2 <<<grid, block>>>(imageData, detections, detectionCount, alphas);
-
-	//detectionKernel3 <<<grid, block>>>(imageData, detections, detectionCount, alphas);
-
-	//detectionKernel4 <<<grid, block>>>(imageData, detections, detectionCount, alphas);
 
 	cudaStatus = cudaGetLastError();
 	if (cudaStatus != cudaSuccess) {
