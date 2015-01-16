@@ -8,6 +8,8 @@
 
 # data stuff
 data/
+temp/
+tmp/
 
 # Build results
 [Dd]ebug/
