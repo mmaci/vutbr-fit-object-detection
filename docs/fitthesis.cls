@@ -74,11 +74,11 @@
 \def\@abstract@EN{Abstract}
 \def\@keywords@CS{Klíèová slova}
 \def\@keywords@EN{Keywords}
-\def\@cite@CS{Citace}
-\def\@copyright@CS{Tato práce vznikla jako ¹kolní dílo na Vysokém uèení technickém v Brnì, Fakultì informaèních technologií. 
-Práce je chránìna autorským zákonem a její u¾ití bez udìlení oprávnìní autorem je nezákonné, s výjimkou zákonem definovaných pøípadù.}
-\def\@tdecl@CS{Prohlá¹ení}
-\def\@tackn@CS{Podìkování}
+\def\@cite@CS{Citation}
+\def\@copyright@CS{This work has been created as a school publication at Brno University of Technology, Faculty of Information Technology. 
+It is hereby a subject to the copyright laws and its usage without the consent of the author is prohibited, except for cases allowed by the law.}
+\def\@tdecl@CS{Declaration}
+\def\@tackn@CS{Acknowledgment}
 
 \newif\ifnasel
 \def\ifEqString#1#2#3#4{\def\testa{#1}\def\testb{#2}%
@@ -92,7 +92,7 @@ Práce je chránìna autorským zákonem a její u¾ití bez udìlení oprávnìní autorem j
  \ifEqString{#1}{BP}{Bachelor's thesis}{\@projecttype@EN}%
  \ifEqString{#1}{SP}{Semestrální projekt}{\@projecttype@CS}%
  \ifEqString{#1}{SP}{Term project}{\@projecttype@EN}%
- \ifEqString{#1}{DP}{Diplomová práce}{\@projecttype@CS}%
+ \ifEqString{#1}{DP}{Master's thesis}{\@projecttype@CS}%
  \ifEqString{#1}{DP}{Master's thesis}{\@projecttype@EN}%
  \ifEqString{#1}{DR}{Disertaèní práce}{\@projecttype@CS}%
  \ifEqString{#1}{DR}{PhD thesis}{\@projecttype@EN}%
@@ -257,7 +257,7 @@ Práce je chránìna autorským zákonem a její u¾ití bez udìlení oprávnìní autorem j
 \vfill
 
 \mktxt@b{16}{\@cite@CS}
-\noindent\@author: \@title, \MakeLowercase{\@projecttype@CS}, Brno, FIT VUT v~Brnì, \@year
+\noindent\@author: \@title, \MakeLowercase{\@projecttype@CS}, Faculty of Information Technology, BUT, Brno \@year
 %===================================================
 \newpage
 }

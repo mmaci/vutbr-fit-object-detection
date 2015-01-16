@@ -31,6 +31,9 @@
 \usepackage[section]{placeins}
 \usepackage{listings}
 \usepackage{tabularx}
+\usepackage[]{algorithm2e}
+\usepackage{amsmath}
+\usepackage{epstopdf}
 
 
 % =======================================================================
@@ -75,15 +78,15 @@
   %bud pomoci nasledujicich parametru nebo pomoci vyhrazenych maker (viz dale)
   %===========================================================================
   %Klicova slova
-  keywords.cs={Klíèová slova v èeském jazyce.}, %klicova slova v ceskem jazyce
-  keywords.en={Klíèová slova v anglickém jazyce.}, %klicova slova v anglickem jazyce
+  keywords.cs={Detekce objektù, klasifikátor, WaldBoost, Local Binary Patterns, CUDA, NVidia, grafický procesor, detekce objektù v reálném èase}, %klicova slova v ceskem jazyce
+  keywords.en={Object detection, Classifier, WaldBoost, Local Binary Patterns, CUDA, NVidia, Graphics Processing Unit, Realtime object detection}, %klicova slova v anglickem jazyce
   %Abstract
-  abstract.cs={Výtah (abstrakt) práce v èeském jazyce.}, % abstrakt v ceskem jazyce
-  abstract.en={Výtah (abstrakt) práce v anglickém jazyce.}, % abstrakt v anglickem jazyce
+  abstract.cs={Tato práce se zabývá detekcí objektù pomocí grafických procesorù. Jako její souèást byl navr¾en a naimplementován systém pro detekci objektù na technologii NVIDIA CUDA, umo¾òující detekovat objekty ve videu v reálném èase. Jejím pøínosem je prozkoumání aktuálních mo¾ností NVIDIA CUDA a stávajících grafických karet k akceleraci detekce a navr¾ení zpùsobù jak dále tyto výpoèty akcelerovat pomocí paralelních algoritmù.}, % abstrakt v ceskem jazyce
+  abstract.en={This thesis addresses the topic of object detection on graphics processing units. As a part of it, a system for object detection using NVIDIA CUDA was designed and implemented, allowing for realtime video object detection. Its contribution is mainly to study the options of NVIDIA CUDA technology and current graphics processing units for object detection acceleration. Also parallel algorithms for object detection are discussed and suggested.}, % abstrakt v anglickem jazyce
   %Prohlaseni
-  declaration={Prohla¹uji, ¾e jsem tuto bakaláøskou práci vypracoval samostatnì pod vedením pana ...},
+  declaration={I hereby declare, that this thesis is my own work and has been created under the supervision of Ing. Roman Juránek, Ph.D. All other sources of information, that have been used, have been fully acknowledged.},
   %Podekovani (nepovinne)
-  acknowledgment={Zde je mo¾né uvést podìkování vedoucímu práce a tìm, kteøí poskytli odbornou pomoc.} % nepovinne
+  acknowledgment={I would like to thank Ing. Roman Juránek, Ph.D. and Ing. Michal Kùla for support and technical consultations provided during the work on this thesis.} % nepovinne
 }
 
 %Abstrakt (cesky, anglicky)
