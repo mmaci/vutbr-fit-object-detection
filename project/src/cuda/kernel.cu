@@ -21,10 +21,12 @@
 #include <vector>
 
 /// wrapper to call kernels
-cudaError_t runKernelWrapper(uint8* /* device image */, Detection* /* device detection buffer */, uint32* /* device detection count */, Bounds*, const size_t);
+cudaError_t runKernelWrapper(uint8* /* device image */, Detection* /* device detection buffer */, uint32* /* device detection count */, SurvivorData*, uint32*, Bounds*, const DetectorInfo);
 
 /// runs object detectin on gpu itself
-__device__ void detect(uint8* /* device image */, Detection* /* detections */, uint32* /* detection count */, uint16 /* starting stage */, uint16 /* ending stage */, Bounds*);
+__device__ void detectSurvivors(uint8*, SurvivorData*, uint32*, uint16, uint16);
+__device__ void detectSurvivorsInit(uint8*, SurvivorData*, uint32*, uint16);
+__device__ void detectDetections(uint8*, SurvivorData*, uint32*, Detection*, uint32*, uint16, Bounds*);
 /// gpu bilinear interpolation
 __device__ void bilinearInterpolation(uint8* /* output image */, const float /* scale */);
 /// builds a pyramid image with parameters set in header.h
@@ -51,8 +53,9 @@ __global__ void pyramidImageKernel(uint8* imageData, Bounds* bounds)
 __device__ void buildPyramid(uint8* imageData, uint32 max_x, uint32 max_y, uint32 min_x, uint32 min_y, Bounds* bounds, uint32 octaves, uint32 levels_per_octave)
 {
 	// coords in the original image
-	const int x = (blockIdx.x * blockDim.x) + threadIdx.x;
-	const int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+	const int threadId = (blockIdx.x * blockDim.x) + threadIdx.x;
+	const int x = threadId % DET_INFO.pyramidImageWidth;
+	const int y = threadId / DET_INFO.pyramidImageWidth;
 
 	// only index data in the original image
 	if (x < (detectorInfo[0].imageWidth - 1) && y < (detectorInfo[0].imageHeight - 1))
@@ -118,17 +121,72 @@ __device__ void buildPyramid(uint8* imageData, uint32 max_x, uint32 max_y, uint3
 }
 
 
-/// detection kernels
+/** @brief Kernel wrapper around initial detection processing, outputting survivors.
+ * @see detectSurvivorsInit  
+ *
+ * @param imageData			Input image.
+ * @param survivors			Ouptut array of threads, which still process the detection.
+ * @param survivorCount		Output number of threads, which still process the detection. 
+ * @return Void.		
+ */
+__global__ void initSurvivorKernel(
+	uint8*			imageData,
+	SurvivorData*	survivors,
+	uint32*			survivorCount)
+{	
+	const uint32 threadId = blockIdx.x*blockDim.x + threadIdx.x;
+	if (threadId == 0) {
+		*survivorCount = 0;
+	}
 
-__global__ void detectionKernel1(uint8* imageData, Detection* detections, uint32* detectionCount, Bounds* bounds)
+	__syncthreads();
+
+	detectSurvivorsInit(imageData, survivors, survivorCount, 256);			
+}
+
+/** @brief Kernel wrapper around detection processing, outputting survivors.
+* @see detectSurvivors
+*
+* @param imageData			Input image.
+* @param survivors			Ouptut array of threads, which still process the detection.
+* @param survivorCount		Output number of threads, which still process the detection.
+* @return Void.
+*/
+__global__ void survivorKernel(
+	uint8*			imageData,
+	SurvivorData*	survivors,
+	uint32*			survivorCount)
 {
-	detect(imageData, detections, detectionCount, 0, 2048, bounds);
+	detectSurvivors(imageData, survivors, survivorCount, 256, 1024);
+}
+
+/** @brief Kernel wrapper around detection processing, outputting detections.
+* @see detectDetections
+*
+* @param imageData			Input image.
+* @param detections			Ouptut array of detections.
+* @param detectionCount		Output number of detections.
+* @param survivors			Initial array of threads, which still process the detection.
+* @param survivorCount		Initial number of threads, which still process the detection.
+* @param bounds				Data about the different subsampled images.
+* @return Void.
+*/
+__global__ void detectionKernel(
+	uint8*			imageData,
+	Detection*		detections,
+	uint32*			detectionCount,
+	SurvivorData*	survivors,
+	uint32*			survivorCount,
+	Bounds*			bounds)
+{	
+	detectDetections(imageData, survivors, survivorCount, detections, detectionCount, 1024, bounds);
 }
 
 __device__ void bilinearInterpolation(uint8* outImage, float scale)
 {
-	const int origX = blockIdx.x*blockDim.x + threadIdx.x;
-	const int origY = blockIdx.y*blockDim.y + threadIdx.y;
+	const int threadId = (blockIdx.x * blockDim.x) + threadIdx.x;
+	const int origX = threadId % DET_INFO.pyramidImageWidth;
+	const int origY = threadId / DET_INFO.pyramidImageWidth;
 
 	const int x = (float)origX / scale;
 	const int y = (float)origY / scale;
@@ -188,16 +246,38 @@ __device__ bool eval(uint8* imageData, uint32 x, uint32 y, float* response, uint
 	return *response > FINAL_THRESHOLD;
 }
 
-__device__ void detect(uint8* imageData, Detection* detections, uint32* detectionCount, uint16 startStage, uint16 endStage, Bounds* bounds)
+/** @brief Final detection processing
+*
+* Processes detections on an image beginning at a starting stage, until the end.
+* Processes only given surviving positions and outputs detections, which can then
+* be displayed.
+*
+* @param imageData			Input image.
+* @param initSurvivors		Input array of surviving positions.
+* @param initSurvivorCount	Initial number of surviving positions.
+* @param detections			Output array of detections.
+* @param detectionCount		Number of detections.
+* @param startStage			Starting stage of the waldboost detector.
+* @param bounds				Data about the different subsampled images.
+* @return Void.
+*/
+__device__ void detectDetections(
+	uint8*			imageData, 
+	SurvivorData*	survivors,
+	uint32*			survivorCount,
+	Detection*		detections, 
+	uint32*			detectionCount, 
+	uint16			startStage,	
+	Bounds*			bounds)
 {
-	const int x = blockIdx.x*blockDim.x + threadIdx.x;
-	const int y = blockIdx.y*blockDim.y + threadIdx.y;
+	const int threadId = blockIdx.x*blockDim.x + threadIdx.x;
+	if (threadId < *survivorCount) {
+		float response = survivors[threadId].response;
+		const int x = survivors[threadId].x;
+		const int y = survivors[threadId].y;
 
-	if (x < (detectorInfo[0].pyramidImageWidth - detectorInfo[0].classifierWidth) && y < (detectorInfo[0].pyramidImageHeight - detectorInfo[0].classifierHeight))
-	{
-		float response = 0.0f;
-		if (eval(imageData, x, y, &response, startStage, endStage)) {
-
+		bool survived = eval(imageData, x, y, &response, startStage, STAGE_COUNT);
+		if (survived) {
 			Bounds b;
 			for (uint8 i = 0; i < 8 * 3; ++i) {
 				if (x >= bounds[i].x_offset && x < (bounds[i].x_offset + bounds[i].width) &&
@@ -214,11 +294,197 @@ __device__ void detect(uint8* imageData, Detection* detections, uint32* detectio
 			detections[pos].height = detectorInfo[0].classifierHeight * b.scale;
 			detections[pos].response = response;
 		}
-
 	}
 }
 
-cudaError_t runKernelWrapper(uint8* imageData, Detection* detections, uint32* detectionCount, Bounds* bounds, const DetectorInfo info)
+/*
+
+__shared__ uint32 localSurvivors[BLOCK_SIZE];
+
+const uint32 threadId = threadIdx.x;
+const uint32 globalId = blockIdx.x*blockDim.x + threadIdx.x;
+
+if (globalId < (DET_INFO.pyramidImageWidth - DET_INFO.classifierWidth) * (DET_INFO.pyramidImageHeight - DET_INFO.classifierHeight)) {
+
+if (!survivors[globalId].survived)
+return;
+
+float response = survivors[globalId].response;
+const uint32 x = survivors[globalId].x;
+const uint32 y = survivors[globalId].y;
+
+bool survived = eval(imageData, x, y, &response, startStage, endStage);
+
+localSurvivors[threadId] = static_cast<uint32>(survived);
+
+// up-sweep
+int offset = 1;
+for (uint32 d = BLOCK_SIZE >> 1; d > 0; d >>= 1, offset <<= 1) {
+__syncthreads();
+
+if (threadId < d) {
+uint32 ai = offset * (2 * threadId + 1) - 1;
+uint32 bi = offset * (2 * threadId + 2) - 1;
+localSurvivors[bi] += localSurvivors[ai];
+}
+}
+
+// down-sweep
+if (threadId == 0) {
+localSurvivors[BLOCK_SIZE - 1] = 0;
+}
+
+for (uint32 d = 1; d < BLOCK_SIZE; d <<= 1) {
+offset >>= 1;
+
+__syncthreads();
+
+if (threadId < d) {
+uint32 ai = offset * (2 * threadId + 1) - 1;
+uint32 bi = offset * (2 * threadId + 2) - 1;
+
+uint32 t = localSurvivors[ai];
+localSurvivors[ai] = localSurvivors[bi];
+localSurvivors[bi] += t;
+}
+}
+
+__syncthreads();
+
+// survived is true if the detection is still running, otherwise the thread is dead
+
+uint32 newThreadId = blockDim.x * blockIdx.x + localSurvivors[threadId];
+if (survived) {
+// new thread id for thread rearrangement
+
+// save position and current response
+survivors[newThreadId].x = x;
+survivors[newThreadId].y = y;
+survivors[newThreadId].response = response;
+survivors[newThreadId].survived = true;
+}
+else {
+survivors[newThreadId].survived = false;
+}
+}
+
+*/
+
+/** @brief Initial survivor detection processing
+ *
+ * Processes detections on an image from the first stage (of the waldboost detector). 
+ * Processes the whole image and outputs the remaining surviving positions after reaching 
+ * the ending stage.
+ *
+ * @param imageData			Input image.
+ * @param survivors			Output array of surviving positions.
+ * @param survivorCount		Number of surviving positions.* 
+ * @param endStage			Ending stage of the waldboost detector.
+ * @return Void.
+ *
+ * @todo calculate newThreadId using prefix sum and shared memory to remove global memory 
+ *		atomic instructio bottlenect
+ */
+__device__ void detectSurvivorsInit(
+	uint8*			imageData,
+	SurvivorData*	survivors,
+	uint32*			survivorCount,	
+	uint16			endStage)
+{
+	const int threadId = blockIdx.x*blockDim.x + threadIdx.x;
+
+	if (threadId < (DET_INFO.pyramidImageWidth - DET_INFO.classifierWidth) * (DET_INFO.pyramidImageHeight - DET_INFO.classifierHeight)) {		
+
+		const int x = threadId % (DET_INFO.pyramidImageWidth - DET_INFO.classifierWidth);
+		const int y = threadId / (DET_INFO.pyramidImageWidth - DET_INFO.classifierWidth);
+
+		float response = 0.0f;
+		bool survived = eval(imageData, x, y, &response, 0, endStage);
+
+		// survived is true if the detection is still running, otherwise the thread is dead
+
+		if (survived) {
+			// new thread id for thread rearrangement			
+			uint32 newThreadId = atomicInc(survivorCount, MAX_SURVIVORS /* TODO: optimalize this */);
+
+			// save position and current response
+			survivors[newThreadId].x = x;
+			survivors[newThreadId].y = y;
+			survivors[newThreadId].response = response;
+		}
+	}
+}
+
+/** @brief Survivor detection processing
+*
+* Processes detections on an image from a set starting stage (of the waldboost detector).
+* Processes only positions in the initSurvivors array and outputs still surviving positions
+* after reaching the ending stage.
+*
+* @param imageData			Input image.
+* @param survivors			Output and input array of surviving positions.
+* @param survivorCount		Output and input number of surviving positions.
+* @param startStage			Starting stage of the waldboost detector.
+* @param endStage			Ending stage of the waldboost detector.
+* @return Void.
+*
+* @todo calculate newThreadId using prefix sum and shared memory to remove global memory
+*		atomic instructio bottlenect
+*/
+__device__ void detectSurvivors(
+	uint8*			imageData, 
+	SurvivorData*	survivors,
+	uint32*			survivorCount,
+	uint16			startStage, 
+	uint16			endStage)								
+{
+	__shared__ uint8 sh[64];
+
+	const int threadId = blockIdx.x*blockDim.x + threadIdx.x;	
+	const int maxSurvivors = *survivorCount;
+
+	__syncthreads();
+
+	if (threadId == 0) {
+		*survivorCount = 0;
+	}
+
+	__syncthreads();
+
+	if (threadId < maxSurvivors) {
+		
+		float response = survivors[threadId].response;
+		const uint32 x = survivors[threadId].x;
+		const uint32 y = survivors[threadId].y;
+
+		__syncthreads();
+
+		bool survived = eval(imageData, x, y, &response, startStage, endStage);
+		
+		// survived is true if the detection is still running, otherwise the thread is dead
+		
+		if (survived) {
+			// TODO: rewrite this to shared memory
+			// this is a large bottleneck on 
+			uint32 newThreadId = atomicInc(survivorCount, MAX_SURVIVORS /* TODO: optimalize this */);
+
+			// we need to save the following:
+			// stage, current response, x, y
+			survivors[newThreadId].x = x;
+			survivors[newThreadId].y = y;
+			survivors[newThreadId].response = response;
+		}	
+	}
+}
+
+cudaError_t runKernelWrapper(
+	uint8* imageData, 
+	Detection* detections, 
+	uint32* detectionCount, 
+	SurvivorData* survivors,
+	uint32* survivorCount,
+	Bounds* bounds, 
+	const DetectorInfo info)
 {
 	cudaEvent_t start_detection, stop_detection, start_pyramid, stop_pyramid;
 	cudaEventCreate(&start_detection);
@@ -231,13 +497,13 @@ cudaError_t runKernelWrapper(uint8* imageData, Detection* detections, uint32* de
 	cudaError_t cudaStatus;
 	cudaStatus = cudaSetDevice(0);
 
-	dim3 grid(32, 128);
-	dim3 block(32, 32);
+	dim3 grid(4096, 1, 1);
+	dim3 block(1024, 1, 1);
 
 	if (param & OPT_TIMER)
 		cudaEventRecord(start_pyramid);
 
-	pyramidImageKernel << <grid, block >> > (imageData, bounds);
+	pyramidImageKernel <<<grid, block>>> (imageData, bounds);
 
 	if (param & OPT_TIMER)
 	{
@@ -254,7 +520,18 @@ cudaError_t runKernelWrapper(uint8* imageData, Detection* detections, uint32* de
 	cudaBindTexture(nullptr, &texturePyramidImage, imageData, &channelDesc, sizeof(uint8) * info.pyramidImageHeight * info.pyramidImageWidth);
 
 	cudaEventRecord(start_detection);
-	detectionKernel1 << <grid, block >> >(imageData, detections, detectionCount, bounds);
+
+	initSurvivorKernel <<<grid, block>>>(imageData, survivors, survivorCount);
+
+	if (param & OPT_VERBOSE) {
+		uint32 hostSurvivorCount;
+		cudaMemcpy(&hostSurvivorCount, survivorCount, sizeof(uint32), cudaMemcpyDeviceToHost);
+		std::cout << "Survivor count after initSurvivorKernel: " << hostSurvivorCount << std::endl;
+	}
+
+	survivorKernel <<<grid, block>>>(imageData, survivors, survivorCount);
+
+	detectionKernel <<<grid, block>>>(imageData, detections, detectionCount, survivors, survivorCount, bounds);
 
 	cudaUnbindTexture(texturePyramidImage);
 
@@ -298,9 +575,10 @@ bool runDetector(cv::Mat* image)
 	// ********* DEVICE VARIABLES **********
 	float* devAlphaBuffer;
 	uint8* devImageData, *devOriginalImage;
-	uint32* devDetectionCount;
+	uint32* devDetectionCount, *devSurvivorCount;
 	Detection* devDetections;
 	Bounds* devBounds;
+	SurvivorData* devSurvivors;
 
 	// ********* HOST VARIABLES *********
 	uint8* hostImageData;
@@ -328,11 +606,13 @@ bool runDetector(cv::Mat* image)
 	cudaMalloc(&devAlphaBuffer, STAGE_COUNT * ALPHA_COUNT * sizeof(float));
 	cudaMemcpy(devAlphaBuffer, alphas, STAGE_COUNT * ALPHA_COUNT * sizeof(float), cudaMemcpyHostToDevice);
 
-	cudaMalloc(&devImageData, PYRAMID_IMAGE_SIZE * sizeof(uint8));
-	cudaMalloc(&devOriginalImage, ORIG_IMAGE_SIZE * sizeof(uint8));
-	cudaMalloc(&devDetectionCount, sizeof(uint32));
-	cudaMalloc(&devDetections, MAX_DETECTIONS * sizeof(Detection));
-	cudaMalloc(&devBounds, PYRAMID_IMAGE_COUNT * sizeof(Bounds));
+	cudaMalloc((void**)&devImageData, PYRAMID_IMAGE_SIZE * sizeof(uint8));
+	cudaMalloc((void**)&devOriginalImage, ORIG_IMAGE_SIZE * sizeof(uint8));
+	cudaMalloc((void**)&devDetectionCount, sizeof(uint32));
+	cudaMalloc((void**)&devDetections, MAX_DETECTIONS * sizeof(Detection));
+	cudaMalloc((void**)&devBounds, PYRAMID_IMAGE_COUNT * sizeof(Bounds));
+	cudaMalloc((void**)&devSurvivors, MAX_SURVIVORS * sizeof(SurvivorData));
+	cudaMalloc((void**)&devSurvivorCount, sizeof(uint32));
 
 	uint8* clean = (uint8*)malloc(PYRAMID_IMAGE_SIZE * sizeof(uint8));
 	memset(clean, 0, PYRAMID_IMAGE_SIZE * sizeof(uint8));
@@ -355,6 +635,8 @@ bool runDetector(cv::Mat* image)
 		devImageData,
 		devDetections,
 		devDetectionCount,
+		devSurvivors,
+		devSurvivorCount,
 		devBounds,
 		hostDetectorInfo[0]
 		);

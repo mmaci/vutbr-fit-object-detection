@@ -40,12 +40,21 @@ struct Bounds {
 	float scale;
 };
 
+struct SurvivorData {
+	uint32 x, y;
+	float response;
+	bool survived;
+};
 
+const uint32 MAX_SURVIVORS = 32768;
 const uint32 MAX_DETECTIONS = 2048;
 const uint32 ALPHA_COUNT = 256;
 const uint32 STAGE_COUNT = 2048;
 const uint8 CLASSIFIER_WIDTH = 26;
 const uint8 CLASSIFIER_HEIGHT = 26;
+const uint32 BLOCK_SIZE = 1024;
+
+#define DET_INFO detectorInfo[0]
 
 
 enum Options
