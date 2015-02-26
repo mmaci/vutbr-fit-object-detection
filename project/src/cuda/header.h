@@ -53,6 +53,7 @@ const uint32 STAGE_COUNT = 2048;
 const uint8 CLASSIFIER_WIDTH = 26;
 const uint8 CLASSIFIER_HEIGHT = 26;
 const uint32 BLOCK_SIZE = 1024;
+#define BAD_RESPONSE -5000.f;
 
 #define DET_INFO detectorInfo[0]
 
@@ -77,7 +78,7 @@ enum Options
 
 
 #define PYRAMID_IMAGE_COUNT 32
-#define FINAL_THRESHOLD 10.0f
+#define FINAL_THRESHOLD 0.0f
 
 const float OVERLAY = 0.5f;
 const double MAX_SCORE = 0.6;
